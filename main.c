@@ -6,6 +6,7 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
+#include <time.h>
 
 enum editorKey
 {
@@ -27,6 +28,14 @@ struct abuf
     char *b;
     int len;
 };
+
+struct config
+{
+    int score;
+    int cols;
+    int rows;
+};
+struct config E;
 
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define ABUF_INIT {NULL, 0}
@@ -103,6 +112,24 @@ void ReverseArray(int *arr, int size)
     }
 }
 
+void getWindowSize(int *rows, int *cols)
+{
+    struct winsize ws;
+
+    // to get the size of the terminal by <ESC> sequences
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0)
+    {
+        // to get how much to move the cursor right or down by
+        *cols = 80;
+        *rows = 80;
+    }
+    else
+    {
+        *cols = ws.ws_col;
+        *rows = ws.ws_row;
+    }
+}
+
 /*** Game ***/
 
 Pos generateRandomPos()
@@ -113,8 +140,16 @@ Pos generateRandomPos()
 
 void initalize(int **arr)
 {
+    srand(time(NULL));
+
+    E.score = 0;
+
     for (int i = 0; i < SIZE; i++)
-        arr[i] = malloc(sizeof(int) * SIZE);
+    {
+        free(arr[i]);
+        arr[i] = malloc(SIZE * sizeof(int));
+        memset(arr[i], 0, SIZE * sizeof(int));
+    }
 
     Pos PosA = generateRandomPos();
     Pos PosB = generateRandomPos();
@@ -145,6 +180,7 @@ void move(int *arr) //{2, 2, 4, 4} -> {4, 8, 0, 0} move to the direction of arr[
             arr[j - 1] = arr[j] * 2;
             arr[j] = 0;
             tmp = j - 1;
+            E.score += arr[j - 1];
         }
     }
 }
@@ -165,16 +201,19 @@ int checkGameOver(int **arr)
     {
         if (searchArray(&arr[i][0], 0, SIZE))
             return 0;
-        for (int j = 0; j < SIZE - 1; j++)
-            if (arr[i][j] == arr[i][j + 1])
+        for (int j = 0; j < SIZE; j++)
+            if ((j < SIZE - 1 && arr[i][j] == arr[i][j + 1]) || (i < SIZE - 1 && arr[i][j] == arr[i + 1][j]))
+            {
                 return 0;
+            }
     }
     return 1;
 }
 
 void gameOver()
 {
-    write(STDOUT_FILENO, "**GAMEOVER**", 12); // TODO
+    write(STDOUT_FILENO, "GAMEOVER\n\r", 11); // TODO
+    exit(0);
 }
 
 void setLine(int **arr, int index, int direction)
@@ -221,15 +260,9 @@ void setLine(int **arr, int index, int direction)
 
 void DrawGame(int **arr, struct abuf *ab)
 {
-    struct winsize ws;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0)
-    {
-        ws.ws_col = 80;
-    }
-
     int cellWidth = 5;
     int totalGridWidth = SIZE * cellWidth;
-    int margin = (ws.ws_col - totalGridWidth) / 2;
+    int margin = (E.cols - totalGridWidth) / 2;
 
     if (margin < 0)
     {
@@ -254,13 +287,45 @@ void DrawGame(int **arr, struct abuf *ab)
             for (int p = 0; p < leftPad; p++)
                 abAppend(ab, " ", 1);
 
-            abAppend(ab, buf, len);
+            if (num)
+                abAppend(ab, buf, len);
+            else
+                abAppend(ab, ".", 1);
 
             for (int p = 0; p < rightPad; p++)
                 abAppend(ab, " ", 1);
         }
         abAppend(ab, "\n\r", 2);
     }
+}
+
+void editorDrawStatusBar(struct abuf *ab)
+{
+    char status[80], rstatus[80];
+    int len = snprintf(status, sizeof(status),
+                       "PRESS CTRL-C TO QUIT | PRESS CTRL-R TO RESTART");
+    int scoreLen = snprintf(rstatus, sizeof(rstatus), " SCORE: %d ", E.score);
+    if (len > E.cols)
+        len = E.cols;
+    abAppend(ab, status, len);
+    int pad = (E.cols - scoreLen) / 2;
+    while (scoreLen < E.cols)
+    {
+        if (pad == len)
+        {
+            abAppend(ab, "\x1b[7m", 4);
+            abAppend(ab, rstatus, scoreLen);
+            abAppend(ab, "\x1b[m", 3);
+            break;
+        }
+        else
+        {
+            abAppend(ab, " ", 1);
+            len++;
+        }
+    }
+
+    abAppend(ab, "\r\n", 2);
 }
 
 void editorRefreshScreen(int **arr)
@@ -271,8 +336,8 @@ void editorRefreshScreen(int **arr)
     abAppend(&ab, "\x1b[H", 3);
 
     DrawGame(arr, &ab);
-
-    abAppend(&ab, "PRESS CTRL-C TO QUIT\n\rPRESS CTRL-R TO RESTART", 45);
+    abAppend(&ab, "\r\n", 2);
+    editorDrawStatusBar(&ab);
 
     write(STDOUT_FILENO, ab.b, ab.len);
     abFree(&ab);
@@ -361,8 +426,14 @@ int main()
 {
     enableRawMode();
 
+    getWindowSize(&E.rows, &E.cols);
+
     int **arr = malloc(sizeof(int *) * SIZE);
+    for (int i = 0; i < SIZE; i++)
+        arr[i] = malloc(sizeof(int) * SIZE);
     initalize(arr);
+
+    write(STDOUT_FILENO, "\x1b[2J", 4);
 
     while (1)
     {
@@ -371,8 +442,6 @@ int main()
     }
 
     for (int i = 0; i < SIZE; i++)
-    {
         free(arr[i]);
-    }
     free(arr);
 }
