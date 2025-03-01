@@ -111,6 +111,18 @@ Pos generateRandomPos()
     return pos;
 }
 
+void initalize(int **arr)
+{
+    for (int i = 0; i < SIZE; i++)
+        arr[i] = malloc(sizeof(int) * SIZE);
+
+    Pos PosA = generateRandomPos();
+    Pos PosB = generateRandomPos();
+
+    arr[PosA.y][PosA.x] = 2;
+    arr[PosB.y][PosB.x] = 2;
+}
+
 void move(int *arr) //{2, 2, 4, 4} -> {4, 8, 0, 0} move to the direction of arr[0]
 {
     int tmp = SIZE + 1;
@@ -146,17 +158,24 @@ void addToRandomPos(int **arr)
     arr[pos.x][pos.y] = 2;
 }
 
-// //returns 1 if arr is full and no two adjacent elements are equal.
-// int checkGameOver(int **arr)
-// {
-//     for (int i = 0; i < SIZE; i++)
-//     {
-//         if (searchArray(&arr[i][0], 0, SIZE)) return 0;
-//         for (int j = 0; j < SIZE-1; j++)
-//             if (arr[i][j] == arr[i][j]) return 0;
-//     }
-//     return 1;
-// }
+// returns 1 if arr is full and no two adjacent elements are equal.
+int checkGameOver(int **arr)
+{
+    for (int i = 0; i < SIZE; i++)
+    {
+        if (searchArray(&arr[i][0], 0, SIZE))
+            return 0;
+        for (int j = 0; j < SIZE - 1; j++)
+            if (arr[i][j] == arr[i][j + 1])
+                return 0;
+    }
+    return 1;
+}
+
+void gameOver()
+{
+    write(STDOUT_FILENO, "**GAMEOVER**", 12); // TODO
+}
 
 void setLine(int **arr, int index, int direction)
 {
@@ -208,9 +227,9 @@ void DrawGame(int **arr, struct abuf *ab)
         ws.ws_col = 80;
     }
 
-    int cell_width = 5;
-    int total_grid_width = SIZE * cell_width;
-    int margin = (ws.ws_col - total_grid_width) / 2;
+    int cellWidth = 5;
+    int totalGridWidth = SIZE * cellWidth;
+    int margin = (ws.ws_col - totalGridWidth) / 2;
 
     if (margin < 0)
     {
@@ -221,9 +240,7 @@ void DrawGame(int **arr, struct abuf *ab)
     for (int i = 0; i < SIZE; i++)
     {
         for (int p = 0; p < margin; p++)
-        {
             abAppend(ab, " ", 1);
-        }
 
         for (int j = 0; j < SIZE; j++)
         {
@@ -231,20 +248,16 @@ void DrawGame(int **arr, struct abuf *ab)
             int num = arr[i][j];
             int len = snprintf(buf, sizeof(buf), "%d", num);
 
-            int left_pad = (cell_width - len) / 2;
-            int right_pad = cell_width - len - left_pad;
+            int leftPad = (cellWidth - len) / 2;
+            int rightPad = cellWidth - len - leftPad;
 
-            for (int p = 0; p < left_pad; p++)
-            {
+            for (int p = 0; p < leftPad; p++)
                 abAppend(ab, " ", 1);
-            }
 
             abAppend(ab, buf, len);
 
-            for (int p = 0; p < right_pad; p++)
-            {
+            for (int p = 0; p < rightPad; p++)
                 abAppend(ab, " ", 1);
-            }
         }
         abAppend(ab, "\n\r", 2);
     }
@@ -259,7 +272,7 @@ void editorRefreshScreen(int **arr)
 
     DrawGame(arr, &ab);
 
-    abAppend(&ab, "PRESS CTRL-C TO QUIT", 20);
+    abAppend(&ab, "PRESS CTRL-C TO QUIT\n\rPRESS CTRL-R TO RESTART", 45);
 
     write(STDOUT_FILENO, ab.b, ab.len);
     abFree(&ab);
@@ -322,6 +335,10 @@ void editorProcessKeypress(int **arr)
         exit(0);
         break;
 
+    case CTRL_KEY('r'):
+        initalize(arr);
+        break;
+
     case ARROW_UP:
     case ARROW_DOWN:
     case ARROW_RIGHT:
@@ -331,7 +348,10 @@ void editorProcessKeypress(int **arr)
             setLine(arr, i, c);
         }
         addToRandomPos(arr);
+        if (checkGameOver(arr))
+            gameOver();
         break;
+
     default:
         break;
     }
@@ -341,16 +361,8 @@ int main()
 {
     enableRawMode();
 
-    /*** initalize ***/
     int **arr = malloc(sizeof(int *) * SIZE);
-    for (int i = 0; i < SIZE; i++)
-        arr[i] = malloc(sizeof(int) * SIZE);
-
-    Pos PosA = generateRandomPos();
-    Pos PosB = generateRandomPos();
-
-    arr[PosA.y][PosA.x] = 2;
-    arr[PosB.y][PosB.x] = 2;
+    initalize(arr);
 
     while (1)
     {
